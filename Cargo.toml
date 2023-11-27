@@ -5,4 +5,4 @@ edition = "2021"
 
 [dependencies]
 libc = "0.2.150"
-nix = "0.18.0"
+nix = { version = "0.27.1", features = ["process", "ptrace"]}

@@ -1,8 +1,11 @@
 use nix::{
-    sys::wait::waitpid,
-    unistd::{fork, write, ForkResult},
+    sys::{ptrace, wait::waitpid},
+    unistd::{fork, write, ForkResult, Pid},
 };
-use std::{env, io, process::Command, str::from_utf8};
+use std::{
+    env, io,
+    process::{exit, Command},
+};
 
 enum Commands {
     Info { option: String },
@@ -12,39 +15,38 @@ enum Commands {
 }
 
 fn main() {
-    let mut option: String = String::new();
     print_start();
     print_command_info();
 
     let cmd_args: Vec<String> = env::args().collect();
+    assert!(cmd_args.len() == 2);
 
     match unsafe { fork() } {
         Ok(ForkResult::Parent { child, .. }) => {
-            println!(
-                "Continuing execution in parent process, new child has pid: {}",
-                child
-            );
-            waitpid(child, None).unwrap();
-            println!("Child has finished executing!");
-            std::process::exit(0);
+            debugger(child);
         }
         Ok(ForkResult::Child) => {
-            // Unsafe to use `println!` (or `unwrap`) here. See Safety.
-            write(libc::STDOUT_FILENO, "I'm a new child process\n".as_bytes()).ok();
-            unsafe { libc::_exit(0) };
+            ptrace::traceme().unwrap();
+            debuggee(cmd_args[1].as_str());
         }
         Err(_) => println!("Fork failed"),
     }
+}
 
-    let echo_child = Command::new(cmd_args[1].as_str())
-        .arg("Hello World")
-        .output()
-        .expect("Failed to start echo process");
+fn print_start() {
+    println!("Welcome to ezdb!");
+}
+fn print_command_info() {
+    println!("Your options are: (q)uit, (r)un, (b)reakpoint, (i)nfo, (c)ontinue");
+}
 
+fn debugger(child: Pid) {
     println!(
-        "{:?}",
-        from_utf8(&echo_child.stdout).expect("Failed to read")
+        "Continuing execution in parent process, new child has pid: {}",
+        child
     );
+
+    let mut option: String = String::new();
 
     loop {
         option.clear();
@@ -74,11 +76,20 @@ fn main() {
             }
         }
     }
+
+    waitpid(child, None).unwrap();
+    println!("Child has finished executing!");
+    exit(0);
 }
 
-fn print_start() {
-    println!("Welcome to ezdb!");
-}
-fn print_command_info() {
-    println!("Your options are: (q)uit, (r)un, (b)reakpoint, (i)nfo, (c)ontinue");
+fn debuggee(program_name: &str) {
+    write(libc::STDOUT_FILENO, "I'm a new child process\n".as_bytes()).ok();
+    let echo_child = Command::new(program_name)
+        .arg("Ezra was here")
+        .output()
+        .expect("Failed to start echo process");
+
+    write(libc::STDOUT_FILENO, &echo_child.stdout).ok();
+
+    exit(0);
 }
